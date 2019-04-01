@@ -107,8 +107,6 @@ const ScoreContainer = styled.div`
   flex-shrink: 0;
 `;
 
-const Score = styled.span``;
-
 const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
   const misses =
     tapNote.miss + tapNote.hitMine + tapNote.checkpointMiss + holdNote.missed;
@@ -132,7 +130,7 @@ const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
           <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
         </>
       )}
-      <Score>{formattedScore}</Score>
+      <span>{formattedScore}</span>
     </ScoreContainer>
   );
 });
