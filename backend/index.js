@@ -94,20 +94,23 @@ const sortScores = (score1, score2) => {
       score1.currentPossibleDancePoints - score2.currentPossibleDancePoints
     ) > MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE;
 
-  let firstPercentage = 0;
-  let secondPercentage = 0;
-
   if (overPossibleDancePointDifference) {
-    firstPercentage = score1.actualDancePoints / score1.possibleDancePoints;
-    secondPercentage = score2.actualDancePoints / score2.possibleDancePoints;
-  } else {
-    firstPercentage =
-      score1.actualDancePoints / score1.currentPossibleDancePoints;
-    secondPercentage =
-      score2.actualDancePoints / score2.currentPossibleDancePoints;
-  }
+    const firstPercentage = clampPercentage(
+      score1.actualDancePoints / score1.possibleDancePoints
+    );
+    const secondPercentage = clampPercentage(
+      score2.actualDancePoints / score2.possibleDancePoints
+    );
 
-  return clampPercentage(secondPercentage) - clampPercentage(firstPercentage);
+    return secondPercentage - firstPercentage;
+  } else {
+    const firstLostDancePoints =
+      score1.currentPossibleDancePoints - score1.actualDancePoints;
+    const secondLostDancePoints =
+      score2.currentPossibleDancePoints - score2.actualDancePoints;
+
+    return firstLostDancePoints - secondLostDancePoints;
+  }
 };
 
 const processMessage = (address, msg) => {
