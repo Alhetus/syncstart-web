@@ -43,6 +43,7 @@ const BarContainer = styled.div`
   font-size: 25px;
   text-shadow: rgba(0, 0, 0, 0.5) 1px 1px 2px;
   will-change: opacity;
+  background-color: black;
 
   &:not(:last-child) {
     margin-bottom: 2px;
