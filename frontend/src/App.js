@@ -42,6 +42,7 @@ const BarContainer = styled.div`
   font-size: 25px;
   text-shadow: rgba(0, 0, 0, 0.5) 1px 1px 2px;
   background-color: black;
+  z-index: -2;
 
   &:not(:last-child) {
     margin-bottom: 2px;
