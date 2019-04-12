@@ -39,10 +39,8 @@ const BarContainer = styled.div`
   align-items: center;
   position: relative;
   padding: 8px;
-  transition: opacity 100ms;
   font-size: 25px;
   text-shadow: rgba(0, 0, 0, 0.5) 1px 1px 2px;
-  will-change: opacity;
   background-color: black;
 
   &:not(:last-child) {
@@ -52,8 +50,10 @@ const BarContainer = styled.div`
   ${props =>
     props.isFailed &&
     css`
-      opacity: 0.5;
-      color: rgb(255, 50, 50) !important;
+      & > * {
+        opacity: 0.5;
+        color: rgb(255, 50, 50) !important;
+      }
     `}
 `;
 
