@@ -15,6 +15,10 @@ const GlobalStyles = createGlobalStyle`
     font-family: "Exo";
     background-color: black;
   }
+  
+  *, *:before, *:after {
+    box-sizing: border-box;
+  }
 `;
 
 const Bars = styled.div`
