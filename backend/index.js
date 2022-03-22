@@ -2,9 +2,12 @@ const SYNCSTART_UDP_PORT = 53000;
 const WEBSOCKET_PORT = 8080;
 const MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE = 100;
 
+const path = require("path");
+const fs = require("fs");
 const _ = require("lodash");
 const WebSocket = require("ws");
 const dgram = require("dgram");
+const sanitize = require("sanitize-filename");
 
 const udpServer = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
@@ -56,7 +59,7 @@ const parseMessage = msg => {
     possibleDancePoints: parseInt(possibleDancePoints, 10),
     formattedScore,
     life: parseFloat(life),
-    isFailed: isFailed === "1" ? true : false,
+    isFailed: isFailed === "1",
 
     tapNote: {
       none: parseInt(tapNoteNone, 10),
@@ -113,11 +116,7 @@ const sortScores = (score1, score2) => {
   }
 };
 
-const processMessage = (address, msg) => {
-  const parsedMessage = parseMessage(msg);
-  const scoreKey = `${address} ${parsedMessage.playerNumber}`;
-  const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
-
+function updateServerState(parsedMessage, scoreKey, scoreData) {
   if (serverState === null || serverState.currentSong !== parsedMessage.song) {
     // song changed, reset server state
     serverState = {
@@ -133,6 +132,26 @@ const processMessage = (address, msg) => {
     serverState.sortedScores = Object.values(serverState.scores);
     serverState.sortedScores.sort(sortScores);
   }
+}
+
+const processMessage = (address, msg, isFinalScore) => {
+  const parsedMessage = parseMessage(msg);
+  const scoreKey = `${address} ${parsedMessage.playerNumber}`;
+  const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
+
+  // write json file for final score
+  if (isFinalScore) {
+    const json = JSON.stringify(scoreData);
+    const filename = sanitize(`${Date.now()}_${scoreData.song.replace("/", "_")}_${
+      scoreData.playerName
+    }.json`);
+	const filePath = path.join(".", "scores", filename);
+    fs.writeFileSync(filePath, json, "utf8");
+  }
+  // Score changed
+  else {
+    updateServerState(parsedMessage, scoreKey, scoreData);
+  }
 };
 
 const getClientMessage = () =>
@@ -143,23 +162,29 @@ const getClientMessage = () =>
 
 udpServer.on("message", (buffer, rinfo) => {
   // we are interested only in score messages
-  if (buffer[0] !== 0x02) {
+  const isScoreChangedMessage = buffer[0] === 0x02;
+  const isFinalScoreMessage = buffer[0] === 0x05;
+
+  if (!isScoreChangedMessage && !isFinalScoreMessage) {
     return;
   }
 
   const scoreMessage = buffer.slice(1).toString("utf-8");
 
   try {
-    processMessage(rinfo.address, scoreMessage);
+    processMessage(rinfo.address, scoreMessage, isFinalScoreMessage);
   } catch (e) {
     console.error(`ERROR: couldn't process message '${scoreMessage}'`, e);
   }
 
-  const scoreStateForClients = getClientMessage();
+  // Send client messages only for score changed messages
+  if (isScoreChangedMessage) {
+    const scoreStateForClients = getClientMessage();
 
-  wsServer.clients.forEach(client => {
-    client.send(scoreStateForClients);
-  });
+    wsServer.clients.forEach(client => {
+      client.send(scoreStateForClients);
+    });
+  }
 });
 
 wsServer.on("connection", wsClient => {
