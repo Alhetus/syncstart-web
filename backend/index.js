@@ -2,12 +2,31 @@ const SYNCSTART_UDP_PORT = 53000;
 const WEBSOCKET_PORT = 8080;
 const MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE = 100;
 
+const spreadsheetId = "1qxZod_jc-0tGc0jxZdg344dh_owaNBNZGSxvjfirWlc";
+
 const path = require("path");
 const fs = require("fs");
 const _ = require("lodash");
 const WebSocket = require("ws");
 const dgram = require("dgram");
 const sanitize = require("sanitize-filename");
+const { google } = require("googleapis");
+
+console.log("Authenticating for google sheets...");
+
+const auth = new google.auth.GoogleAuth({
+  keyFile: "keys.json",
+  scopes: "https://www.googleapis.com/auth/spreadsheets",
+});
+
+let authClient;
+
+(async () => {
+  authClient = await auth.getClient();
+})();
+
+const googleSheets = google.sheets({ version: "v4", auth: authClient });
+console.log("Done.");
 
 const udpServer = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
@@ -134,19 +153,51 @@ function updateServerState(parsedMessage, scoreKey, scoreData) {
   }
 }
 
-const processMessage = (address, msg, isFinalScore) => {
+async function sendScoreToGoogleSheets(scoreData, isMarathon) {
+  await googleSheets.spreadsheets.values.append({
+    auth,
+    spreadsheetId,
+    range: isMarathon ? "Marathon scores!A:N" : "Scores!A:N",
+    valueInputOption: "USER_ENTERED",
+    resource: {
+      values: [[
+        scoreData.song,
+        scoreData.playerName,
+        parseFloat(scoreData.formattedScore),
+        scoreData.isFailed,
+        scoreData.tapNote.W1,
+        scoreData.tapNote.W2,
+        scoreData.tapNote.W3,
+        scoreData.tapNote.W4,
+        scoreData.tapNote.W5,
+        scoreData.tapNote.miss,
+        scoreData.tapNote.hitMine,
+        scoreData.holdNote.held,
+        scoreData.holdNote.letGo,
+        scoreData.id
+      ]],
+    },
+  });
+}
+
+const processMessage = async (address, msg, isFinalScore, isFinalMarathonScore) => {
   const parsedMessage = parseMessage(msg);
   const scoreKey = `${address} ${parsedMessage.playerNumber}`;
   const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
 
   // write json file for final score
-  if (isFinalScore) {
+  if (isFinalScore || isFinalMarathonScore) {
     const json = JSON.stringify(scoreData);
-    const filename = sanitize(`${Date.now()}_${scoreData.song.replace("/", "_")}_${
-      scoreData.playerName
-    }.json`);
-	const filePath = path.join(".", "scores", filename);
+    const filename = sanitize(
+      `${Date.now()}_${scoreData.song.replace("/", "_")}_${
+        scoreData.playerName
+      }.json`
+    );
+    const filePath = path.join(".", "scores", filename);
     fs.writeFileSync(filePath, json, "utf8");
+
+    // Send to google sheets
+    await sendScoreToGoogleSheets(scoreData, isFinalMarathonScore);
   }
   // Score changed
   else {
@@ -160,19 +211,29 @@ const getClientMessage = () =>
     scores: serverState.sortedScores
   });
 
-udpServer.on("message", (buffer, rinfo) => {
+udpServer.on("message", async (buffer, rinfo) => {
   // we are interested only in score messages
   const isScoreChangedMessage = buffer[0] === 0x02;
   const isFinalScoreMessage = buffer[0] === 0x05;
+  const isFinalMarathonScoreMessage = buffer[0] === 0x06;
 
-  if (!isScoreChangedMessage && !isFinalScoreMessage) {
+  if (
+    !isScoreChangedMessage &&
+    !isFinalScoreMessage &&
+    !isFinalMarathonScoreMessage
+  ) {
     return;
   }
 
   const scoreMessage = buffer.slice(1).toString("utf-8");
 
   try {
-    processMessage(rinfo.address, scoreMessage, isFinalScoreMessage);
+    await processMessage(
+      rinfo.address,
+      scoreMessage,
+      isFinalScoreMessage,
+      isFinalMarathonScoreMessage
+    );
   } catch (e) {
     console.error(`ERROR: couldn't process message '${scoreMessage}'`, e);
   }
