@@ -32,7 +32,7 @@ const Bars = styled.div`
 `;
 
 const BarContainer = styled.div`
-  width: 100%; /* will get overriden */
+  width: 100%; /* will get overridden */
   font-weight: 500;
   color: white;
   display: flex;
@@ -129,10 +129,10 @@ const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
     <ScoreContainer>
       {showExtraScore && (
         <>
-          <JudgementScore color="#e29c18" label="e" value={tapNote.W2} />{" "}
-          <JudgementScore color="#66c955" label="g" value={tapNote.W3} />{" "}
-          <JudgementScore color="#5b2b8e" label="d" value={tapNote.W4} />{" "}
-          <JudgementScore color="#c9855e" label="w" value={tapNote.W5} />{" "}
+          <JudgementScore color="#f2f2f2" label="w" value={tapNote.W2} />{" "}
+          <JudgementScore color="#e29c18" label="e" value={tapNote.W3} />{" "}
+          <JudgementScore color="#66c955" label="g" value={tapNote.W4} />{" "}
+          <JudgementScore color="#5b2b8e" label="d" value={tapNote.W5} />{" "}
           <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
         </>
       )}
