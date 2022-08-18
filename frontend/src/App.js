@@ -117,13 +117,9 @@ const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
   const misses =
     tapNote.miss + tapNote.hitMine + tapNote.checkpointMiss + holdNote.missed;
 
-  const showExtraScore = [
-    tapNote.W2,
-    tapNote.W3,
-    tapNote.W4,
-    tapNote.W5,
-    misses
-  ].every(val => val < 10);
+  const showExtraScore = [tapNote.W3, tapNote.W4, tapNote.W5, misses].every(
+    val => val < 30
+  );
 
   return (
     <ScoreContainer>
