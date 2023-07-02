@@ -205,13 +205,13 @@ async function sendScoresToGoogleSheets(scoreValues) {
   });
 }
 
-const processMessage = async (address, msg, isFinalScore) => {
+const processMessage = async (address, msg, isFinalScore, isFinalMarathonScore) => {
   const parsedMessage = parseMessage(msg);
   const scoreKey = `${address} ${parsedMessage.playerNumber}`;
   const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
 
-  // write json file for final score
-  if (isFinalScore) {
+  // write json file for final score & final marathon score
+  if (isFinalScore || isFinalMarathonScore) {
     const json = JSON.stringify(scoreData);
     const filename = sanitize(
       `${Date.now()}_${scoreData.song.replace("/", "_")}_${
@@ -240,10 +240,12 @@ udpServer.on("message", async (buffer, rinfo) => {
   // we are interested only in score messages
   const isScoreChangedMessage = buffer[0] === 0x02;
   const isFinalScoreMessage = buffer[0] === 0x05;
+  const isFinalMarathonScoreMessage = buffer[0] === 0x06;
 
   if (
     !isScoreChangedMessage &&
-    !isFinalScoreMessage
+    !isFinalScoreMessage &&
+    !isFinalMarathonScoreMessage
   ) {
     return;
   }
@@ -254,7 +256,8 @@ udpServer.on("message", async (buffer, rinfo) => {
     await processMessage(
       rinfo.address,
       scoreMessage,
-      isFinalScoreMessage
+      isFinalScoreMessage,
+      isFinalMarathonScoreMessage
     );
   } catch (e) {
     console.error(`ERROR: couldn't process message '${scoreMessage}'`, e);
