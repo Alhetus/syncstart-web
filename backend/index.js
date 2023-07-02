@@ -72,7 +72,8 @@ const parseMessage = msg => {
     holdNoteNone,
     holdNoteLetGo,
     holdNoteHeld,
-    holdNoteMissed
+    holdNoteMissed,
+    totalHoldsCount
   ] = msg.split("|");
 
   return {
@@ -105,7 +106,9 @@ const parseMessage = msg => {
       letGo: parseInt(holdNoteLetGo, 10),
       held: parseInt(holdNoteHeld, 10),
       missed: parseInt(holdNoteMissed, 10)
-    }
+    },
+
+    totalHoldsCount: parseInt(totalHoldsCount, 10)
   };
 };
 
@@ -185,6 +188,9 @@ function storeScoreForSending(scoreData) {
     scoreData.tapNote.hitMine,
     scoreData.holdNote.held,
     scoreData.holdNote.letGo,
+    scoreData.totalHoldsCount,
+    scoreData.actualDancePoints,
+    scoreData.possibleDancePoints,
     scoreData.id
   ];
 
