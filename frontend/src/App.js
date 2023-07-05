@@ -117,21 +117,13 @@ const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
   const misses =
     tapNote.miss + tapNote.hitMine + tapNote.checkpointMiss + holdNote.missed;
 
-  const showExtraScore = [tapNote.W3, tapNote.W4, tapNote.W5, misses].every(
-    val => val < 30
-  );
-
   return (
     <ScoreContainer>
-      {showExtraScore && (
-        <>
-          <JudgementScore color="#f2f2f2" label="w" value={tapNote.W2} />{" "}
-          <JudgementScore color="#e29c18" label="e" value={tapNote.W3} />{" "}
-          <JudgementScore color="#66c955" label="g" value={tapNote.W4} />{" "}
-          <JudgementScore color="#5b2b8e" label="d" value={tapNote.W5} />{" "}
-          <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
-        </>
-      )}
+      <JudgementScore color="#f2f2f2" label="w" value={tapNote.W2} />{" "}
+      <JudgementScore color="#e29c18" label="e" value={tapNote.W3} />{" "}
+      <JudgementScore color="#66c955" label="g" value={tapNote.W4} />{" "}
+      <JudgementScore color="#5b2b8e" label="d" value={tapNote.W5} />{" "}
+      <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
       <span>{formattedScore}</span>
     </ScoreContainer>
   );
