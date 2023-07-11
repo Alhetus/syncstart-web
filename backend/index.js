@@ -175,7 +175,7 @@ function storeScoreForSending(scoreData) {
   console.log(`Storing score: ${scoreData.song} - player: ${scoreData.playerName}`);
 
   const scoreItem = [
-    scoreData.song,
+    scoreData.song.split("/")[1],
     scoreData.playerName,
     parseFloat(scoreData.formattedScore),
     scoreData.isFailed,
