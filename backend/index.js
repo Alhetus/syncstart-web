@@ -4,7 +4,7 @@ const MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE = 100;
 
 // CHANGE THESE TO MATCH THE WANTED GOOGLE SHEET
 // ---------------------------------------------
-const spreadsheetId = "1IvZCvV_dwNrOY-8DPGpLu0pylrmBzL-K2SvbXUNqgAI";
+const spreadsheetId = "1fa88lJihFOGGjR3yZiPHo70LOPRWlRLrFFn_I1yFJg4";
 const scoresTabName = "Scores";
 // ---------------------------------------------
 
@@ -66,6 +66,7 @@ const parseMessage = msg => {
     tapNoteW3,
     tapNoteW2,
     tapNoteW1,
+    tapNoteW0,
     tapNoteCheckpointHit,
 
     // hold note scores
@@ -98,6 +99,7 @@ const parseMessage = msg => {
       W3: parseInt(tapNoteW3, 10),
       W2: parseInt(tapNoteW2, 10),
       W1: parseInt(tapNoteW1, 10),
+      W0: parseInt(tapNoteW0, 10),
       checkpointHit: parseInt(tapNoteCheckpointHit, 10)
     },
 
@@ -164,6 +166,7 @@ function updateServerState(parsedMessage, scoreKey, scoreData) {
 
 function storeScoreForSending(scoreData) {
   if (
+    scoreData.tapNote.W0 === 0 &&
     scoreData.tapNote.W1 === 0 &&
     scoreData.tapNote.W2 === 0 &&
     scoreData.tapNote.W3 === 0 &&
@@ -179,6 +182,7 @@ function storeScoreForSending(scoreData) {
     scoreData.playerName,
     parseFloat(scoreData.formattedScore),
     scoreData.isFailed,
+    scoreData.tapNote.W0,
     scoreData.tapNote.W1,
     scoreData.tapNote.W2,
     scoreData.tapNote.W3,
@@ -203,7 +207,7 @@ async function sendScoresToGoogleSheets(scoreValues) {
   await googleSheets.spreadsheets.values.append({
     auth,
     spreadsheetId,
-    range: `${scoresTabName}!A:N`,
+    range: `${scoresTabName}!A:O`,
     valueInputOption: "USER_ENTERED",
     resource: {
       values: scoreValues,
