@@ -74,16 +74,16 @@ const Bar = React.memo(
   ({
     playerName,
     isFailed,
-    actualDancePoints,
+    currentPossibleDancePoints,
     possibleDancePoints,
     scoreDifference
   }) => {
     // Let's not go below 0
     const scorePercentage = Math.max(
-      actualDancePoints / possibleDancePoints,
+      currentPossibleDancePoints / possibleDancePoints,
       0
     );
-    const scoreString = `${actualDancePoints} / ${possibleDancePoints}`;
+    const scoreString = `${currentPossibleDancePoints} / ${possibleDancePoints}`;
 
     const props = useSpring({
       width: scorePercentage * 100 + "%",
@@ -136,13 +136,28 @@ const App = () => {
     msg => {
       const parsedScores = JSON.parse(msg);
 
-      // Add the score difference to the player above
       parsedScores.scores.forEach((score, idx, allScores) => {
+        // re-calculate currentPossibleDancePoints
+        const pointsToSubtract =
+          score.tapNote.W2 + // excellent = -1 DP
+          score.tapNote.W3 + // great = -1 DP
+          score.tapNote.W4 + // decent = -1 DP
+          score.tapNote.W5 + // way off = -1 DP
+          score.tapNote.miss * 2 + // miss = -2 DP
+          score.tapNote.hitMine * 2 + // mine hit = -2 DP
+          score.tapNote.checkpointMiss * 2 + // checkpoint missed = -2 DP
+          score.holdNote.missed * 2; // dropped hold = -2 DP
+
+        score.currentPossibleDancePoints =
+          score.possibleDancePoints - pointsToSubtract;
+
+        // Add the score difference to the player above
         if (idx > 0) {
           const betterPlayerScore = allScores[idx - 1];
 
           score.scoreDifference =
-            score.actualDancePoints - betterPlayerScore.actualDancePoints;
+            score.currentPossibleDancePoints -
+            betterPlayerScore.currentPossibleDancePoints;
         }
       });
 
