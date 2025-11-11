@@ -139,6 +139,7 @@ const App = () => {
       parsedScores.scores.forEach((score, idx, allScores) => {
         // re-calculate currentPossibleDancePoints
         const pointsToSubtract =
+          score.tapNote.W1 + // white fantastic = -1 DP
           score.tapNote.W2 + // excellent = -1 DP
           score.tapNote.W3 + // great = -1 DP
           score.tapNote.W4 + // decent = -1 DP
