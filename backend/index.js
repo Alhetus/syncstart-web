@@ -1,48 +1,61 @@
-const SYNCSTART_UDP_PORT = 53000;
-const WEBSOCKET_PORT = 8080;
-const MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE = 100;
+import path from "node:path";
+import fs from "node:fs";
+import dgram from "node:dgram";
+import { WebSocketServer } from "ws";
+import { sheets, auth } from "@googleapis/sheets";
 
-// CHANGE THESE TO MATCH THE WANTED GOOGLE SHEET
-// ---------------------------------------------
-const spreadsheetId = "1fa88lJihFOGGjR3yZiPHo70LOPRWlRLrFFn_I1yFJg4";
-const scoresTabName = "Scores";
-// ---------------------------------------------
+// --- Configuration (env-driven, with sensible defaults) --------------------
+// Loaded from .env via `node --env-file-if-exists=.env` (see package.json).
+const num = (value, fallback) =>
+  value === undefined ? fallback : Number(value);
 
-const path = require("path");
-const fs = require("fs");
-const _ = require("lodash");
-const WebSocket = require("ws");
-const dgram = require("dgram");
-const sanitize = require("sanitize-filename");
-const { google } = require("googleapis");
+const SYNCSTART_UDP_PORT = num(process.env.SYNCSTART_UDP_PORT, 53000);
+const WEBSOCKET_PORT = num(process.env.WEBSOCKET_PORT, 8080);
+const MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE = num(
+  process.env.MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE,
+  100
+);
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+const SCORES_TAB_NAME = process.env.SCORES_TAB_NAME || "Scores";
+const GOOGLE_KEY_FILE = process.env.GOOGLE_KEY_FILE || "keys.json";
+
+// Resolve paths relative to this module so the service runs from any CWD.
+const scoresDir = path.join(import.meta.dirname, "scores");
+const keyFile = path.isAbsolute(GOOGLE_KEY_FILE)
+  ? GOOGLE_KEY_FILE
+  : path.join(import.meta.dirname, GOOGLE_KEY_FILE);
+
+// --- Google Sheets ---------------------------------------------------------
+// GoogleAuth resolves the underlying client lazily on the first request, so no
+// startup await/race is needed.
+const googleAuth = new auth.GoogleAuth({
+  keyFile,
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+});
+const googleSheets = sheets({ version: "v4", auth: googleAuth });
 
 let scoreSendingQueue = [];
 
-console.log("Authenticating for google sheets...");
-
-const auth = new google.auth.GoogleAuth({
-  keyFile: "keys.json",
-  scopes: "https://www.googleapis.com/auth/spreadsheets",
-});
-
-let authClient;
-
-(async () => {
-  authClient = await auth.getClient();
-})();
-
-const googleSheets = google.sheets({ version: "v4", auth: authClient });
-console.log("Done.");
-
+// --- Servers ---------------------------------------------------------------
 const udpServer = dgram.createSocket({ type: "udp4", reuseAddr: true });
+// Created in start(), after config/credentials are validated (constructing it
+// binds the port immediately, so we defer until we know we're going to run).
+let wsServer;
 
-const wsServer = new WebSocket.Server({
-  port: WEBSOCKET_PORT
+udpServer.on("error", (err) => {
+  console.error(`FATAL: UDP server error on port ${SYNCSTART_UDP_PORT}:`, err);
+  process.exit(1);
 });
 
 let serverState = null;
 
-const parseMessage = msg => {
+// Replaces the `sanitize-filename` dependency: strip characters that are
+// illegal in file names (and control chars), and fall back to a safe default.
+const sanitizeFilename = (name) =>
+  // eslint-disable-next-line no-control-regex -- intentionally strip control chars
+  name.replace(/[/\\?%*:|"<>\x00-\x1f]/g, "").slice(0, 255) || "unnamed";
+
+const parseMessage = (msg) => {
   const [
     // "misc" information
     song,
@@ -114,7 +127,7 @@ const parseMessage = msg => {
   };
 };
 
-const clampPercentage = val => _.clamp(val, 0, 1);
+const clampPercentage = (val) => Math.min(Math.max(val, 0), 1);
 
 const sortScores = (score1, score2) => {
   // if other is one is failed and other not, that's all that matters
@@ -170,12 +183,17 @@ function storeScoreForSending(scoreData) {
     scoreData.tapNote.W1 === 0 &&
     scoreData.tapNote.W2 === 0 &&
     scoreData.tapNote.W3 === 0 &&
-    scoreData.tapNote.W4 === 0) {
-    console.log(`Irrelevant score: ${scoreData.song} - player: ${scoreData.playerName}. Will not send`);
+    scoreData.tapNote.W4 === 0
+  ) {
+    console.log(
+      `Irrelevant score: ${scoreData.song} - player: ${scoreData.playerName}. Will not send`
+    );
     return;
   }
 
-  console.log(`Storing score: ${scoreData.song} - player: ${scoreData.playerName}`);
+  console.log(
+    `Storing score: ${scoreData.song} - player: ${scoreData.playerName}`
+  );
 
   const scoreItem = [
     scoreData.song.split("/")[1],
@@ -205,17 +223,21 @@ async function sendScoresToGoogleSheets(scoreValues) {
   console.log(`Sending ${scoreValues.length} scores to google sheets`);
 
   await googleSheets.spreadsheets.values.append({
-    auth,
-    spreadsheetId,
-    range: `${scoresTabName}!A:O`,
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${SCORES_TAB_NAME}!A:O`,
     valueInputOption: "USER_ENTERED",
-    resource: {
-      values: scoreValues,
-    },
+    requestBody: {
+      values: scoreValues
+    }
   });
 }
 
-const processMessage = async (address, msg, isFinalScore, isFinalMarathonScore) => {
+const processMessage = async (
+  address,
+  msg,
+  isFinalScore,
+  isFinalMarathonScore
+) => {
   const parsedMessage = parseMessage(msg);
   const scoreKey = `${address} ${parsedMessage.playerNumber}`;
   const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
@@ -223,13 +245,11 @@ const processMessage = async (address, msg, isFinalScore, isFinalMarathonScore) 
   // write json file for final score & final marathon score
   if (isFinalScore || isFinalMarathonScore) {
     const json = JSON.stringify(scoreData);
-    const filename = sanitize(
-      `${Date.now()}_${scoreData.song.replace("/", "_")}_${
-        scoreData.playerName
-      }.json`
+    const filename = sanitizeFilename(
+      `${Date.now()}_${scoreData.song.replace("/", "_")}_${scoreData.playerName}.json`
     );
-    const filePath = path.join(".", "scores", filename);
-    fs.writeFileSync(filePath, json, "utf8");
+    fs.mkdirSync(scoresDir, { recursive: true });
+    fs.writeFileSync(path.join(scoresDir, filename), json, "utf8");
 
     // Store score in queue
     storeScoreForSending(scoreData);
@@ -242,7 +262,7 @@ const processMessage = async (address, msg, isFinalScore, isFinalMarathonScore) 
 
 const getClientMessage = () =>
   JSON.stringify({
-    song: serverState.song,
+    song: serverState.currentSong,
     scores: serverState.sortedScores
   });
 
@@ -277,45 +297,100 @@ udpServer.on("message", async (buffer, rinfo) => {
   if (isScoreChangedMessage) {
     const scoreStateForClients = getClientMessage();
 
-    wsServer.clients.forEach(client => {
+    wsServer.clients.forEach((client) => {
       client.send(scoreStateForClients);
     });
   }
 });
 
-wsServer.on("connection", wsClient => {
-  if (serverState) {
-    wsClient.send(getClientMessage());
+// Poll in 5 second intervals and flush queued scores to the sheet. The
+// `flushing` guard prevents overlapping flushes; the batch is removed from the
+// queue up front and re-queued on failure so scores are never double-sent or
+// dropped.
+let flushing = false;
+async function flushScoresToSheet() {
+  if (flushing || scoreSendingQueue.length === 0) {
+    return;
   }
-});
+  flushing = true;
 
-// Poll in 5 second intervals and send scores
-async function waitAndSendScoresToSheet() {
-  setTimeout(async function() {
-    const queueLength = scoreSendingQueue.length;
-
-    // Send accumulated scores to google sheets
-    if (queueLength > 0) {
-      try {
-        await sendScoresToGoogleSheets(scoreSendingQueue, false);
-
-        // Clear sent amount from queue
-        for (let i = 0; i < queueLength; i++) {
-          scoreSendingQueue.shift();
-        }
-      } catch (e) {
-        console.log("Error: could not send score", e);
-      }
-    }
-
-    // Run again after 5 seconds
-    await waitAndSendScoresToSheet();
-  }, 5000);
+  const batch = scoreSendingQueue.splice(0, scoreSendingQueue.length);
+  try {
+    await sendScoresToGoogleSheets(batch);
+  } catch (e) {
+    console.log("Error: could not send score, will retry", e);
+    // put the batch back at the front to retry on the next tick
+    scoreSendingQueue.unshift(...batch);
+  } finally {
+    flushing = false;
+  }
 }
 
-waitAndSendScoresToSheet();
+// Confirm the credentials authenticate and the service account can actually
+// reach the target spreadsheet. Returns the spreadsheet title on success.
+async function verifyGoogleAccess() {
+  const res = await googleSheets.spreadsheets.get({
+    spreadsheetId: SPREADSHEET_ID,
+    fields: "properties.title"
+  });
+  return res.data.properties.title;
+}
 
-console.log("Starting server!");
-console.log("SYNCSTART_UDP_PORT:", SYNCSTART_UDP_PORT);
-console.log("WEBSOCKET_PORT:", WEBSOCKET_PORT);
-udpServer.bind(SYNCSTART_UDP_PORT);
+async function start() {
+  // SPREADSHEET_ID is mandatory — the server exists to log scores, so refuse
+  // to run without a target sheet.
+  if (!SPREADSHEET_ID) {
+    console.error(
+      "FATAL: SPREADSHEET_ID is required but not set. Set it in .env (see .env.example)."
+    );
+    process.exit(1);
+  }
+
+  // The credentials file must exist before we try to authenticate.
+  if (!fs.existsSync(keyFile)) {
+    console.error(
+      `FATAL: Google credentials file not found at "${keyFile}". ` +
+        "Set GOOGLE_KEY_FILE or add keys.json (see README)."
+    );
+    process.exit(1);
+  }
+
+  // Verify we can authenticate with keys.json AND access the target sheet.
+  try {
+    const title = await verifyGoogleAccess();
+    console.log(
+      `Google Sheets: authenticated and able to access "${title}" (${SPREADSHEET_ID}).`
+    );
+  } catch (e) {
+    console.error(
+      `FATAL: could not access spreadsheet ${SPREADSHEET_ID} using ${path.basename(keyFile)}. ` +
+        "Check the credentials and that the service account has access to the sheet."
+    );
+    console.error(e.message || e);
+    process.exit(1);
+  }
+
+  // Config validated — start the servers.
+  wsServer = new WebSocketServer({ port: WEBSOCKET_PORT });
+  wsServer.on("error", (err) => {
+    console.error(
+      `FATAL: WebSocket server error on port ${WEBSOCKET_PORT}:`,
+      err
+    );
+    process.exit(1);
+  });
+  wsServer.on("connection", (wsClient) => {
+    if (serverState) {
+      wsClient.send(getClientMessage());
+    }
+  });
+
+  setInterval(flushScoresToSheet, 5000);
+
+  console.log("Starting server!");
+  console.log("SYNCSTART_UDP_PORT:", SYNCSTART_UDP_PORT);
+  console.log("WEBSOCKET_PORT:", WEBSOCKET_PORT);
+  udpServer.bind(SYNCSTART_UDP_PORT);
+}
+
+start();
