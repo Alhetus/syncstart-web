@@ -2,4 +2,4 @@
 
 set -e
 
-(trap 'kill 0' SIGINT; (cd frontend && npm run build-and-serve) & (cd backend && npm start))
+(trap 'kill 0' SIGINT; (cd frontend && npm run build && npm run preview) & (cd backend && npm start))

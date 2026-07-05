@@ -1,1 +1,3 @@
 .idea/
+udp-mock-sender/logs/
+backend/scores/*.json

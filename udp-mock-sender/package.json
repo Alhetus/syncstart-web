@@ -1,0 +1,14 @@
+{
+  "name": "syncstart-udp-mock-sender",
+  "version": "1.0.0",
+  "description": "Realistic UDP score-packet simulator for the SyncStart backend (StepMania/ITGmania). Simulates a song for several players, then fires the final-score packets.",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "license": "ISC"
+}
