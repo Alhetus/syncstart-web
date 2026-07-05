@@ -1,0 +1,31 @@
+{
+  "target": { "host": "127.0.0.1", "port": 53000 },
+  "song": "Test Pack/Bad Apple!!",
+  "durationSeconds": 50,
+  "tickIntervalMs": 300,
+  "chart": { "totalNotes": 900, "totalHolds": 40 },
+  "seed": 12345,
+  "machines": [
+    {
+      "name": "Cab A",
+      "players": [
+        { "playerNumber": 0, "playerName": "Alice", "skill": "pro" },
+        { "playerNumber": 1, "playerName": "Bob", "skill": "good" }
+      ]
+    },
+    {
+      "name": "Cab B",
+      "players": [
+        { "playerNumber": 2, "playerName": "Cara", "skill": "average" },
+        { "playerNumber": 3, "playerName": "Dan", "skill": "average", "forceFail": true }
+      ]
+    },
+    {
+      "name": "Cab C",
+      "players": [
+        { "playerNumber": 4, "playerName": "Longnickname2000", "skill": "good" },
+        { "playerNumber": 5, "playerName": "Finn", "skill": "beginner" }
+      ]
+    }
+  ]
+}
