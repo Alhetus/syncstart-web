@@ -5,6 +5,13 @@
   box-sizing: border-box;
 }
 
+/* Single scale knob: 1rem = 6.25vw = 25px at a 400px reference width. Every
+   size below is expressed in rem (original px / 25), so the whole layout scales
+   with window width while preserving the original 400px proportions. */
+:root {
+  font-size: 6.25vw;
+}
+
 html,
 body {
   margin: 0;
@@ -23,25 +30,24 @@ body {
   align-items: flex-start;
   height: 100%;
   width: 100%;
-  max-width: 400px;
 }
 
 .bar-container {
-  width: 100%; /* will get overridden */
+  width: 100%;
   font-weight: 500;
   color: white;
   display: flex;
   align-items: center;
   position: relative;
-  padding: 8px;
-  font-size: 25px;
-  text-shadow: rgba(0, 0, 0, 0.5) 1px 1px 2px;
+  padding: 0.32rem;
+  font-size: 1rem;
+  text-shadow: rgba(0, 0, 0, 0.5) 0.04rem 0.04rem 0.08rem;
   background-color: black;
   z-index: -2;
 }
 
 .bar-container:not(:last-child) {
-  margin-bottom: 2px;
+  margin-bottom: 0.08rem;
 }
 
 .bar-container.failed > * {
@@ -78,7 +84,7 @@ body {
   margin-left: auto;
   display: flex;
   align-items: baseline;
-  gap: 6px; /* even spacing between badges + percent */
+  gap: 0.24rem; /* even spacing between badges + percent */
   font-weight: 800;
   white-space: nowrap;
   flex-shrink: 0;
@@ -93,5 +99,5 @@ body {
 
 .judgement {
   font-weight: 400;
-  font-size: 18px;
+  font-size: 0.72rem;
 }
