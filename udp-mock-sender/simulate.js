@@ -21,7 +21,8 @@ const MAX_TAP_WEIGHT = TAP_WEIGHT.W0;
 const JUDGEMENTS = ["W0", "W1", "W2", "W3", "W4", "W5", "miss"];
 
 const SKILL_PROFILES = {
-  pro: { dist: [0.7, 0.22, 0.05, 0.02, 0.005, 0.003, 0.002], holdHitRate: 0.99 },
+  megapro: { dist: [0.99, 0.01, 0.001, 0.0001, 0.00005, 0.00002, 0.00001], holdHitRate: 0.999, mineHitChance: 0.001 },
+  pro: { dist: [0.9, 0.15, 0.03, 0.01, 0.005, 0.003, 0.002], holdHitRate: 0.99, mineHitChance: 0.005 },
   good: { dist: [0.45, 0.3, 0.15, 0.06, 0.02, 0.01, 0.01], holdHitRate: 0.95 },
   average: { dist: [0.22, 0.28, 0.25, 0.15, 0.05, 0.02, 0.03], holdHitRate: 0.85 },
   beginner: { dist: [0.1, 0.18, 0.25, 0.22, 0.1, 0.05, 0.1], holdHitRate: 0.65 }
@@ -109,6 +110,7 @@ export const makePlayer = (playerConfig, machineName, chart, song, seed) => {
     rng: mulberry32((seed | 0) + playerConfig.playerNumber * 0x9e3779b1),
     cumulative,
     holdHitRate: profile.holdHitRate,
+    mineHitChance: profile.mineHitChance ?? 0.02,
 
     actualDancePoints: 0,
     currentPossibleDancePoints: 0,
@@ -143,9 +145,9 @@ export const advancePlayer = (player, noteCount, holdCount) => {
     }
   }
 
-  // Occasional mine hit (small, skill-independent) — exercises the negative
+  // Occasional mine hit — exercises the negative
   // dance-point path and the hitMine sheet column.
-  if (player.rng() < 0.02) {
+  if (player.rng() < player.mineHitChance) {
     player.tapNote.hitMine += 1;
     player.actualDancePoints += HIT_MINE_WEIGHT;
     if (!player.isFailed) {

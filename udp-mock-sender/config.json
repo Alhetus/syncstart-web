@@ -16,7 +16,7 @@
     {
       "name": "Cab B",
       "players": [
-        { "playerNumber": 2, "playerName": "Cara", "skill": "average" },
+        { "playerNumber": 2, "playerName": "CaraProPlayer", "skill": "megapro" },
         { "playerNumber": 3, "playerName": "Dan", "skill": "average", "forceFail": true }
       ]
     },
