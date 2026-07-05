@@ -128,14 +128,19 @@ export const makePlayer = (playerConfig, machineName, chart, song, seed) => {
 // player) so each player resolves every mine to exactly hitMine or avoidMine —
 // keeping judgedNoteCount (the backend's frame key) aligned across players.
 export const advancePlayer = (player, noteCount, holdCount, mineCount) => {
+  // A failed player is frozen: no more judgements, holds, mines, dance points or
+  // life. The backend drops failed players from frame gating (gatingScores()),
+  // so their judgedNoteCount no longer needs to track the others'.
+  if (player.isFailed) {
+    return player;
+  }
+
   for (let i = 0; i < noteCount; i++) {
     const j = rollJudgement(player.rng, player.cumulative);
     player.tapNote[j] += 1;
     player.actualDancePoints += TAP_WEIGHT[j];
     player.currentPossibleDancePoints += MAX_TAP_WEIGHT;
-    if (!player.isFailed) {
-      player.life += LIFE_DELTA[j];
-    }
+    player.life += LIFE_DELTA[j];
   }
 
   for (let i = 0; i < holdCount; i++) {
@@ -149,15 +154,12 @@ export const advancePlayer = (player, noteCount, holdCount, mineCount) => {
   }
 
   // Each mine at this position is either hit (negative dance points + life) or
-  // avoided — every player resolves the same number of mines, so hitMine +
-  // avoidMine stays position-aligned across players.
+  // avoided.
   for (let i = 0; i < mineCount; i++) {
     if (player.rng() < player.mineHitChance) {
       player.tapNote.hitMine += 1;
       player.actualDancePoints += HIT_MINE_WEIGHT;
-      if (!player.isFailed) {
-        player.life += HIT_MINE_LIFE;
-      }
+      player.life += HIT_MINE_LIFE;
     } else {
       player.tapNote.avoidMine += 1;
     }
