@@ -128,9 +128,10 @@ const run = async () => {
   for (let tick = 1; tick <= totalTicks && !stopped; tick++) {
     const notes = scheduleFor(config.chart.totalNotes, tick, totalTicks);
     const holds = scheduleFor(config.chart.totalHolds || 0, tick, totalTicks);
+    const mines = scheduleFor(config.chart.totalMines || 0, tick, totalTicks);
 
     for (const player of players) {
-      advancePlayer(player, notes, holds);
+      advancePlayer(player, notes, holds, mines);
       await send(
         socket,
         buildPacket(PACKET_TYPE.SCORE_CHANGED, player),

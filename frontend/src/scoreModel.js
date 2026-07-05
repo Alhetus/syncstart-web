@@ -93,7 +93,7 @@ export const deriveRows = (scoreState, prevShowGap) => {
         (pctScore(above.actualDancePoints, above.possibleDancePoints) -
           pctScore(actualDancePoints, possibleDancePoints)) *
         100;
-      return { ...base, chips: [{ text: `+${pct.toFixed(1)}%` }] };
+      return { ...base, chips: [{ text: `+${pct.toFixed(2)}%` }] };
     }
 
     // Close: judgements the player is behind in vs the player above. Good tiers

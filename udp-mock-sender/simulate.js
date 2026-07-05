@@ -93,7 +93,7 @@ export const makePlayer = (playerConfig, machineName, chart, song, seed) => {
   dist.reduce((acc, v, i) => (cumulative[i] = acc + v), 0);
 
   const possibleDancePoints =
-    chart.totalNotes * MAX_TAP_WEIGHT + chart.totalHolds * HELD_WEIGHT;
+    chart.totalNotes * MAX_TAP_WEIGHT + (chart.totalHolds || 0) * HELD_WEIGHT;
 
   return {
     playerNumber: playerConfig.playerNumber,
@@ -103,7 +103,7 @@ export const makePlayer = (playerConfig, machineName, chart, song, seed) => {
     forceFail: playerConfig.forceFail === true,
 
     song,
-    totalHoldsCount: chart.totalHolds,
+    totalHoldsCount: chart.totalHolds || 0,
     possibleDancePoints,
 
     // seed the RNG per player so streams are independent but reproducible
@@ -123,8 +123,11 @@ export const makePlayer = (playerConfig, machineName, chart, song, seed) => {
   };
 };
 
-// Advance a player by `noteCount` taps and `holdCount` holds (this tick).
-export const advancePlayer = (player, noteCount, holdCount) => {
+// Advance a player by `noteCount` taps, `holdCount` holds and `mineCount` mines
+// (this tick). Mines are position-scheduled (identical count per tick for every
+// player) so each player resolves every mine to exactly hitMine or avoidMine —
+// keeping judgedNoteCount (the backend's frame key) aligned across players.
+export const advancePlayer = (player, noteCount, holdCount, mineCount) => {
   for (let i = 0; i < noteCount; i++) {
     const j = rollJudgement(player.rng, player.cumulative);
     player.tapNote[j] += 1;
@@ -145,16 +148,19 @@ export const advancePlayer = (player, noteCount, holdCount) => {
     }
   }
 
-  // Occasional mine hit — exercises the negative
-  // dance-point path and the hitMine sheet column.
-  if (player.rng() < player.mineHitChance) {
-    player.tapNote.hitMine += 1;
-    player.actualDancePoints += HIT_MINE_WEIGHT;
-    if (!player.isFailed) {
-      player.life += HIT_MINE_LIFE;
+  // Each mine at this position is either hit (negative dance points + life) or
+  // avoided — every player resolves the same number of mines, so hitMine +
+  // avoidMine stays position-aligned across players.
+  for (let i = 0; i < mineCount; i++) {
+    if (player.rng() < player.mineHitChance) {
+      player.tapNote.hitMine += 1;
+      player.actualDancePoints += HIT_MINE_WEIGHT;
+      if (!player.isFailed) {
+        player.life += HIT_MINE_LIFE;
+      }
+    } else {
+      player.tapNote.avoidMine += 1;
     }
-  } else if (player.rng() < 0.05) {
-    player.tapNote.avoidMine += 1;
   }
 
   if (player.forceFail && !player.isFailed) {

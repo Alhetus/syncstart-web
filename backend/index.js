@@ -173,6 +173,11 @@ const processMessage = async (
     frame: judgedNoteCount(parsedMessage)
   });
 
+  // Merge every packet (live and final) into the board: a final score carries
+  // the player's completed value, and this also creates serverState when a
+  // final packet is the first one seen for a (new) song.
+  updateServerState(parsedMessage, scoreKey, scoreData);
+
   // write json file for final score & final marathon score
   if (isFinalScore || isFinalMarathonScore) {
     const json = JSON.stringify(scoreData);
@@ -188,10 +193,6 @@ const processMessage = async (
     // This player is done — stop gating broadcasts on them so a finished player
     // can't hold back the frame frontier for those still playing.
     finishedIds.add(scoreKey);
-  }
-  // Score changed
-  else {
-    updateServerState(parsedMessage, scoreKey, scoreData);
   }
 };
 

@@ -11,7 +11,14 @@ const App = () => {
   const showGapRef = React.useRef({}); // id -> bool, hysteresis across messages
 
   const handleMessage = React.useCallback((msg) => {
-    setRows(deriveRows(JSON.parse(msg), showGapRef.current));
+    let parsed;
+    try {
+      parsed = JSON.parse(msg);
+    } catch {
+      console.error("Ignoring malformed message from server:", msg);
+      return;
+    }
+    setRows(deriveRows(parsed, showGapRef.current));
   }, []);
 
   useWebSocket(websocketUrl, handleMessage);
