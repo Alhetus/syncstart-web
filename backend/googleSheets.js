@@ -27,7 +27,7 @@ export const createGoogleSheets = ({ keyFile, spreadsheetId, tabName }) => {
 
     await googleSheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${tabName}!A:O`,
+      range: `${tabName}!A:R`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
         values: scoreValues

@@ -10,6 +10,9 @@ Node service for the SyncStart feature of StepMania/ITGmania. It:
 
 Plain JavaScript (ESM), no build step.
 
+For how it works internally — architecture, data flow, the UDP packet format,
+and the outgoing WebSocket message format — see [`DOCUMENTATION.md`](./DOCUMENTATION.md).
+
 ## Requirements
 
 - Node.js 24 LTS (see `.nvmrc`)
@@ -31,14 +34,14 @@ example and edit it:
 cp .env.example .env
 ```
 
-| Variable                               | Default     | Purpose                                              |
-| -------------------------------------- | ----------- | ---------------------------------------------------- |
-| `SYNCSTART_UDP_PORT`                   | `53000`     | UDP port the game sends score packets to             |
-| `WEBSOCKET_PORT`                       | `8080`      | WebSocket port the frontend connects to              |
-| `SPREADSHEET_ID`                       | _(required)_ | Target Google Sheet ID; server won't start without it |
-| `SCORES_TAB_NAME`                      | `Scores`    | Sheet tab to append rows to                          |
-| `GOOGLE_KEY_FILE`                      | `keys.json` | Service-account credentials path (local, gitignored) |
-| `MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE` | `100`       | Sort threshold (see `sortScores`)                    |
+| Variable                               | Default       | Purpose                                                |
+| -------------------------------------- |---------------|--------------------------------------------------------|
+| `SYNCSTART_UDP_PORT`                   | `53000`       | UDP port the game sends score packets to               |
+| `WEBSOCKET_PORT`                       | `8080`        | WebSocket port the frontend connects to                |
+| `SPREADSHEET_ID`                       | _(required)_  | Target Google Sheet ID; server won't start without it  |
+| `SCORES_TAB_NAME`                      | `Scores`      | Sheet tab to append rows to                            |
+| `GOOGLE_KEY_FILE`                      | `keys.json`   | Service-account credentials path (local, gitignored)   |
+| `MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE` | `100`         | Sort threshold (see `sortScores`)                      |
 
 ### Google credentials
 
