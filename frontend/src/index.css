@@ -5,11 +5,9 @@
   box-sizing: border-box;
 }
 
-/* Single scale knob: 1rem = 6.25vw = 25px at a 400px reference width. Every
-   size below is expressed in rem (original px / 25), so the whole layout scales
-   with window width while preserving the original 400px proportions. */
+/* Single scale knob for the whole UI width. */
 :root {
-  font-size: 6.25vw;
+  font-size: 6.0vw;
 }
 
 html,
@@ -26,9 +24,6 @@ body {
 .bars {
   display: flex;
   flex-direction: column;
-  align-content: stretch;
-  align-items: flex-start;
-  height: 100%;
   width: 100%;
 }
 
@@ -90,11 +85,6 @@ body {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
-}
-
-.percent {
-  display: inline-block;
-  text-align: right;
 }
 
 .judgement {
