@@ -22,8 +22,108 @@ const lifebarColor = (life) => {
 // player is behind in; at/above it we show the score-percentage gap instead.
 const DP_GAP_THRESHOLD = 15;
 
+// Hysteresis dead-band: once in one mode, the gap must move this far past the
+// threshold to switch back. Stops the display flipping when dpGap jitters
+// around DP_GAP_THRESHOLD on quick updates.
+const DP_GAP_HYSTERESIS = 5;
+
 // Completed-so-far percentage; guards possibleDancePoints being 0.
 const pctScore = (actual, possible) => (possible > 0 ? actual / possible : 0);
+
+const missCount = (n) =>
+  n.tapNote.miss + n.tapNote.hitMine + n.tapNote.checkpointMiss + n.holdNote.missed;
+
+// A visible judgement chip, or null when the value is <= 0 (nothing to show).
+const chip = (value, color, label, plus) =>
+  value > 0 ? { value, color, label, plus } : null;
+
+// Precompute one fully-rendered view model per score. Pure except for
+// `prevShowGap`, the per-id hysteresis map, which it rebuilds from the current
+// ids (pruning players who left) and mutates in place for the next message.
+const deriveRows = (scoreState, prevShowGap) => {
+  const scores = scoreState.scores;
+  const nextShowGap = {};
+
+  const rows = scores.map((score, i) => {
+    const {
+      id,
+      playerName,
+      life,
+      formattedScore,
+      tapNote,
+      isFailed,
+      actualDancePoints,
+      possibleDancePoints
+    } = score;
+    const above = scores[i - 1];
+
+    const base = {
+      id,
+      playerName,
+      isFailed,
+      lifeWidth: life * 100 + "%",
+      lifeColor: lifebarColor(life),
+      formattedScore
+    };
+
+    // Leader (no one above): full breakdown of the player's own judgements.
+    if (!above) {
+      return {
+        ...base,
+        chips: [
+          chip(missCount(score), "#ff0000", "m"),
+          chip(tapNote.W5, "#632b08", "wo"),
+          chip(tapNote.W4, "#5b2b8e", "d"),
+          chip(tapNote.W3, "#66c955", "g"),
+          chip(tapNote.W2, "#e29c18", "e"),
+          chip(tapNote.W1, "#f2f2f2", "w")
+        ].filter(Boolean)
+      };
+    }
+
+    const dpGap = above.actualDancePoints - actualDancePoints; // >0 = behind
+
+    // Apply hysteresis: flip to % only at/above the threshold, back to
+    // judgements only once clearly below it. In between, keep the last mode.
+    const showGap =
+      dpGap >= DP_GAP_THRESHOLD
+        ? true
+        : dpGap < DP_GAP_THRESHOLD - DP_GAP_HYSTERESIS
+          ? false
+          : !!prevShowGap[id];
+    nextShowGap[id] = showGap;
+
+    // Far behind: show the score-percentage gap (computed from dance points).
+    if (showGap) {
+      const pct =
+        (pctScore(above.actualDancePoints, above.possibleDancePoints) -
+          pctScore(actualDancePoints, possibleDancePoints)) *
+        100;
+      return { ...base, chips: [{ text: `+${pct.toFixed(1)}%` }] };
+    }
+
+    // Close: judgements the player is behind in vs the player above. Good tiers
+    // (W1-W4) count "behind" as fewer; bad tiers (W5, misses) as more. Chips
+    // with value <= 0 are dropped, so only deficits render.
+    return {
+      ...base,
+      chips: [
+        chip(missCount(score) - missCount(above), "#ff0000", "m", true),
+        chip(tapNote.W5 - above.tapNote.W5, "#632b08", "wo", true),
+        chip(above.tapNote.W4 - tapNote.W4, "#5b2b8e", "d", true),
+        chip(above.tapNote.W3 - tapNote.W3, "#66c955", "g", true),
+        chip(above.tapNote.W2 - tapNote.W2, "#e29c18", "e", true),
+        chip(above.tapNote.W1 - tapNote.W1, "#f2f2f2", "w", true)
+      ].filter(Boolean)
+    };
+  });
+
+  // Swap the map in place so the caller's ref carries forward (and prunes).
+  for (const k of Object.keys(prevShowGap)) delete prevShowGap[k];
+  Object.assign(prevShowGap, nextShowGap);
+
+  return rows;
+};
 
 // Shrinks the player name's font to fit the space left over on its row (after
 // the right-pinned score block), instead of truncating. CSS has no shrink-to-fit,
@@ -62,159 +162,46 @@ const PlayerName = React.memo(({ name }) => {
 });
 
 const Bar = React.memo(
-  ({
-    playerName,
-    life,
-    formattedScore,
-    tapNote,
-    holdNote,
-    isFailed,
-    actualDancePoints,
-    possibleDancePoints,
-    above
-  }) => (
+  ({ playerName, lifeWidth, lifeColor, formattedScore, chips, isFailed }) => (
     <div className={isFailed ? "bar-container failed" : "bar-container"}>
       <PlayerName name={playerName} />
-      <RenderedScore
-        formattedScore={formattedScore}
-        tapNote={tapNote}
-        holdNote={holdNote}
-        actualDancePoints={actualDancePoints}
-        possibleDancePoints={possibleDancePoints}
-        above={above}
-      />
+      <div className="score">
+        {chips.map((c, i) => (
+          <React.Fragment key={i}>
+            {c.text ? (
+              <span className="judgement gap">{c.text}</span>
+            ) : (
+              <span className="judgement">
+                {c.plus ? "+" : ""}
+                {c.value}
+                <span style={{ color: c.color }}>{c.label}</span>
+              </span>
+            )}{" "}
+          </React.Fragment>
+        ))}
+        <span className="percent">{formattedScore}</span>
+      </div>
       <div
         className="lifebar"
-        style={{
-          width: life * 100 + "%",
-          backgroundColor: lifebarColor(life)
-        }}
+        style={{ width: lifeWidth, backgroundColor: lifeColor }}
       />
     </div>
   )
 );
 
-const JudgementScore = React.memo(({ color, label, value, plus }) =>
-  value > 0 ? (
-    <span className="judgement">
-      {plus ? "+" : ""}
-      {value}
-      <span style={{ color }}>{label}</span>
-    </span>
-  ) : null
-);
-
-const RenderedScore = React.memo(
-  ({
-    formattedScore,
-    tapNote,
-    holdNote,
-    actualDancePoints,
-    possibleDancePoints,
-    above
-  }) => {
-    const misses =
-      tapNote.miss + tapNote.hitMine + tapNote.checkpointMiss + holdNote.missed;
-
-    // Leader (no one above): full breakdown of the player's own judgements.
-    if (!above) {
-      return (
-        <div className="score">
-          <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
-          <JudgementScore color="#632b08" label="wo" value={tapNote.W5} />{" "}
-          <JudgementScore color="#5b2b8e" label="d" value={tapNote.W4} />{" "}
-          <JudgementScore color="#66c955" label="g" value={tapNote.W3} />{" "}
-          <JudgementScore color="#e29c18" label="e" value={tapNote.W2} />{" "}
-          <JudgementScore color="#f2f2f2" label="w" value={tapNote.W1} />{" "}
-          <span className="percent">{formattedScore}</span>
-        </div>
-      );
-    }
-
-    const dpGap = above.actualDancePoints - actualDancePoints; // >0 = behind
-
-    // Far behind: show the score-percentage gap (computed from dance points).
-    if (dpGap >= DP_GAP_THRESHOLD) {
-      const pct =
-        (pctScore(above.actualDancePoints, above.possibleDancePoints) -
-          pctScore(actualDancePoints, possibleDancePoints)) *
-        100;
-      return (
-        <div className="score">
-          <span className="judgement gap">{`+${pct.toFixed(2)}%`}</span>{" "}
-          <span className="percent">{formattedScore}</span>
-        </div>
-      );
-    }
-
-    // Close: judgements the player is behind in vs the player above. Good tiers
-    // (W1-W4) count "behind" as fewer; bad tiers (W5, misses) as more.
-    // JudgementScore hides values <= 0, so only deficits render.
-    const aboveMisses =
-      above.tapNote.miss +
-      above.tapNote.hitMine +
-      above.tapNote.checkpointMiss +
-      above.holdNote.missed;
-
-    return (
-      <div className="score">
-        <JudgementScore
-          color="#ff0000"
-          label="m"
-          plus
-          value={misses - aboveMisses}
-        />{" "}
-        <JudgementScore
-          color="#632b08"
-          label="wo"
-          plus
-          value={tapNote.W5 - above.tapNote.W5}
-        />{" "}
-        <JudgementScore
-          color="#5b2b8e"
-          label="d"
-          plus
-          value={above.tapNote.W4 - tapNote.W4}
-        />{" "}
-        <JudgementScore
-          color="#66c955"
-          label="g"
-          plus
-          value={above.tapNote.W3 - tapNote.W3}
-        />{" "}
-        <JudgementScore
-          color="#e29c18"
-          label="e"
-          plus
-          value={above.tapNote.W2 - tapNote.W2}
-        />{" "}
-        <JudgementScore
-          color="#f2f2f2"
-          label="w"
-          plus
-          value={above.tapNote.W1 - tapNote.W1}
-        />{" "}
-        <span className="percent">{formattedScore}</span>
-      </div>
-    );
-  }
-);
-
 const App = () => {
-  const [scoreState, setScoreState] = React.useState(null);
+  const [rows, setRows] = React.useState(null);
+  const showGapRef = React.useRef({}); // id -> bool, hysteresis across messages
 
   const handleMessage = React.useCallback((msg) => {
-    setScoreState(JSON.parse(msg));
+    setRows(deriveRows(JSON.parse(msg), showGapRef.current));
   }, []);
 
   useWebSocket(websocketUrl, handleMessage);
 
   return (
     <div className="bars">
-      {scoreState &&
-        scoreState.scores.map((score, i, arr) => (
-          <Bar key={score.id} above={arr[i - 1]} {...score} />
-        ))}
+      {rows && rows.map((row) => <Bar key={row.id} {...row} />)}
     </div>
   );
 };
