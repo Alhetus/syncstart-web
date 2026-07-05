@@ -20,7 +20,7 @@ const lifebarColor = (life) => {
 
 // Below this dance-point gap to the player above we show which judgements the
 // player is behind in; at/above it we show the score-percentage gap instead.
-const DP_GAP_THRESHOLD = 20;
+const DP_GAP_THRESHOLD = 15;
 
 // Completed-so-far percentage; guards possibleDancePoints being 0.
 const pctScore = (actual, possible) => (possible > 0 ? actual / possible : 0);
@@ -94,9 +94,10 @@ const Bar = React.memo(
   )
 );
 
-const JudgementScore = React.memo(({ color, label, value }) =>
+const JudgementScore = React.memo(({ color, label, value, plus }) =>
   value > 0 ? (
     <span className="judgement">
+      {plus ? "+" : ""}
       {value}
       <span style={{ color }}>{label}</span>
     </span>
@@ -135,14 +136,12 @@ const RenderedScore = React.memo(
     // Far behind: show the score-percentage gap (computed from dance points).
     if (dpGap >= DP_GAP_THRESHOLD) {
       const pct =
-        (pctScore(actualDancePoints, possibleDancePoints) -
-          pctScore(above.actualDancePoints, above.possibleDancePoints)) *
+        (pctScore(above.actualDancePoints, above.possibleDancePoints) -
+          pctScore(actualDancePoints, possibleDancePoints)) *
         100;
       return (
         <div className="score">
-          <span className="judgement">{`${pct > 0 ? "+" : ""}${pct.toFixed(
-            1
-          )}%`}</span>{" "}
+          <span className="judgement gap">{`+${pct.toFixed(2)}%`}</span>{" "}
           <span className="percent">{formattedScore}</span>
         </div>
       );
@@ -162,31 +161,37 @@ const RenderedScore = React.memo(
         <JudgementScore
           color="#ff0000"
           label="m"
+          plus
           value={misses - aboveMisses}
         />{" "}
         <JudgementScore
           color="#632b08"
           label="wo"
+          plus
           value={tapNote.W5 - above.tapNote.W5}
         />{" "}
         <JudgementScore
           color="#5b2b8e"
           label="d"
+          plus
           value={above.tapNote.W4 - tapNote.W4}
         />{" "}
         <JudgementScore
           color="#66c955"
           label="g"
+          plus
           value={above.tapNote.W3 - tapNote.W3}
         />{" "}
         <JudgementScore
           color="#e29c18"
           label="e"
+          plus
           value={above.tapNote.W2 - tapNote.W2}
         />{" "}
         <JudgementScore
           color="#f2f2f2"
           label="w"
+          plus
           value={above.tapNote.W1 - tapNote.W1}
         />{" "}
         <span className="percent">{formattedScore}</span>

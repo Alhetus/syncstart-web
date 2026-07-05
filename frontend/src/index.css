@@ -92,3 +92,7 @@ body {
   font-weight: 400;
   font-size: 0.72rem;
 }
+
+.gap {
+  color: #ff9d3c; /* amber, distinct from white name + score */
+}
