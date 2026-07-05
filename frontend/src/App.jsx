@@ -18,6 +18,13 @@ const lifebarColor = (life) => {
   return `rgb(${r}, ${g}, ${b})`;
 };
 
+// Below this dance-point gap to the player above we show which judgements the
+// player is behind in; at/above it we show the score-percentage gap instead.
+const DP_GAP_THRESHOLD = 20;
+
+// Completed-so-far percentage; guards possibleDancePoints being 0.
+const pctScore = (actual, possible) => (possible > 0 ? actual / possible : 0);
+
 // Shrinks the player name's font to fit the space left over on its row (after
 // the right-pinned score block), instead of truncating. CSS has no shrink-to-fit,
 // so we measure the text's natural width against the box width and apply a scale.
@@ -55,13 +62,26 @@ const PlayerName = React.memo(({ name }) => {
 });
 
 const Bar = React.memo(
-  ({ playerName, life, formattedScore, tapNote, holdNote, isFailed }) => (
+  ({
+    playerName,
+    life,
+    formattedScore,
+    tapNote,
+    holdNote,
+    isFailed,
+    actualDancePoints,
+    possibleDancePoints,
+    above
+  }) => (
     <div className={isFailed ? "bar-container failed" : "bar-container"}>
       <PlayerName name={playerName} />
       <RenderedScore
         formattedScore={formattedScore}
         tapNote={tapNote}
         holdNote={holdNote}
+        actualDancePoints={actualDancePoints}
+        possibleDancePoints={possibleDancePoints}
+        above={above}
       />
       <div
         className="lifebar"
@@ -83,22 +103,97 @@ const JudgementScore = React.memo(({ color, label, value }) =>
   ) : null
 );
 
-const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
-  const misses =
-    tapNote.miss + tapNote.hitMine + tapNote.checkpointMiss + holdNote.missed;
+const RenderedScore = React.memo(
+  ({
+    formattedScore,
+    tapNote,
+    holdNote,
+    actualDancePoints,
+    possibleDancePoints,
+    above
+  }) => {
+    const misses =
+      tapNote.miss + tapNote.hitMine + tapNote.checkpointMiss + holdNote.missed;
 
-  return (
-    <div className="score">
-      <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
-      <JudgementScore color="#632b08" label="wo" value={tapNote.W5} />{" "}
-      <JudgementScore color="#5b2b8e" label="d" value={tapNote.W4} />{" "}
-      <JudgementScore color="#66c955" label="g" value={tapNote.W3} />{" "}
-      <JudgementScore color="#e29c18" label="e" value={tapNote.W2} />{" "}
-      <JudgementScore color="#f2f2f2" label="w" value={tapNote.W1} />{" "}
-      <span className="percent">{formattedScore}</span>
-    </div>
-  );
-});
+    // Leader (no one above): full breakdown of the player's own judgements.
+    if (!above) {
+      return (
+        <div className="score">
+          <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
+          <JudgementScore color="#632b08" label="wo" value={tapNote.W5} />{" "}
+          <JudgementScore color="#5b2b8e" label="d" value={tapNote.W4} />{" "}
+          <JudgementScore color="#66c955" label="g" value={tapNote.W3} />{" "}
+          <JudgementScore color="#e29c18" label="e" value={tapNote.W2} />{" "}
+          <JudgementScore color="#f2f2f2" label="w" value={tapNote.W1} />{" "}
+          <span className="percent">{formattedScore}</span>
+        </div>
+      );
+    }
+
+    const dpGap = above.actualDancePoints - actualDancePoints; // >0 = behind
+
+    // Far behind: show the score-percentage gap (computed from dance points).
+    if (dpGap >= DP_GAP_THRESHOLD) {
+      const pct =
+        (pctScore(actualDancePoints, possibleDancePoints) -
+          pctScore(above.actualDancePoints, above.possibleDancePoints)) *
+        100;
+      return (
+        <div className="score">
+          <span className="judgement">{`${pct > 0 ? "+" : ""}${pct.toFixed(
+            1
+          )}%`}</span>{" "}
+          <span className="percent">{formattedScore}</span>
+        </div>
+      );
+    }
+
+    // Close: judgements the player is behind in vs the player above. Good tiers
+    // (W1-W4) count "behind" as fewer; bad tiers (W5, misses) as more.
+    // JudgementScore hides values <= 0, so only deficits render.
+    const aboveMisses =
+      above.tapNote.miss +
+      above.tapNote.hitMine +
+      above.tapNote.checkpointMiss +
+      above.holdNote.missed;
+
+    return (
+      <div className="score">
+        <JudgementScore
+          color="#ff0000"
+          label="m"
+          value={misses - aboveMisses}
+        />{" "}
+        <JudgementScore
+          color="#632b08"
+          label="wo"
+          value={tapNote.W5 - above.tapNote.W5}
+        />{" "}
+        <JudgementScore
+          color="#5b2b8e"
+          label="d"
+          value={above.tapNote.W4 - tapNote.W4}
+        />{" "}
+        <JudgementScore
+          color="#66c955"
+          label="g"
+          value={above.tapNote.W3 - tapNote.W3}
+        />{" "}
+        <JudgementScore
+          color="#e29c18"
+          label="e"
+          value={above.tapNote.W2 - tapNote.W2}
+        />{" "}
+        <JudgementScore
+          color="#f2f2f2"
+          label="w"
+          value={above.tapNote.W1 - tapNote.W1}
+        />{" "}
+        <span className="percent">{formattedScore}</span>
+      </div>
+    );
+  }
+);
 
 const App = () => {
   const [scoreState, setScoreState] = React.useState(null);
@@ -112,7 +207,9 @@ const App = () => {
   return (
     <div className="bars">
       {scoreState &&
-        scoreState.scores.map((score) => <Bar key={score.id} {...score} />)}
+        scoreState.scores.map((score, i, arr) => (
+          <Bar key={score.id} above={arr[i - 1]} {...score} />
+        ))}
     </div>
   );
 };
