@@ -3,7 +3,11 @@ import fs from "node:fs";
 import dgram from "node:dgram";
 import { WebSocketServer, WebSocket } from "ws";
 import { parseMessage } from "./parseMessage.js";
-import { makeSortScores } from "./scoring.js";
+import {
+  makeSortScores,
+  judgedNoteCount,
+  nextBroadcastFrame
+} from "./scoring.js";
 import { createGoogleSheets } from "./googleSheets.js";
 
 // --- Configuration (env-driven, with sensible defaults) --------------------
@@ -24,6 +28,17 @@ const GOOGLE_KEY_FILE = process.env.GOOGLE_KEY_FILE || "keys.json";
 // Skip broadcasting to a client that has more than this many bytes still
 // buffered — it can't keep up, so queueing more would grow memory unbounded.
 const MAX_CLIENT_BUFFERED_BYTES = 512 * 1024;
+
+// Fallback: if a complete frame (all still-playing clients at the same song
+// position) hasn't assembled within this window — a client paused, quit without
+// a final packet, or sustained packet loss — broadcast the latest set anyway so
+// the scoreboard never freezes.
+const FRAME_TIMEOUT_MS = 300;
+
+// Cap broadcasts to at most one per this window. Frame alignment decides which
+// snapshots are eligible; this thins the rate so dense charts don't emit one
+// message per note. Coalesced sends always carry the latest complete frame.
+const CADENCE_CAP_MS = 100;
 
 // Resolve paths relative to this module so the service runs from any CWD.
 const scoresDir = path.join(import.meta.dirname, "scores");
@@ -56,6 +71,12 @@ udpServer.on("error", (err) => {
 
 let serverState = null;
 
+// Frame-aligned broadcasting (see maybeBroadcastFrame). `finishedIds` holds
+// players who sent a final score, so we stop waiting on them; both reset per
+// song in updateServerState.
+let lastBroadcastFrame = -1;
+const finishedIds = new Set();
+
 // Replaces the `sanitize-filename` dependency: strip characters that are
 // illegal in file names (and control chars), and fall back to a safe default.
 const sanitizeFilename = (name) =>
@@ -73,7 +94,9 @@ const isValidScore = (parsedMessage) =>
 
 function updateServerState(parsedMessage, scoreKey, scoreData) {
   if (serverState === null || serverState.currentSong !== parsedMessage.song) {
-    // song changed, reset server state
+    // song changed, reset server state (and the frame-alignment bookkeeping)
+    finishedIds.clear();
+    lastBroadcastFrame = -1;
     serverState = {
       currentSong: parsedMessage.song,
       scores: {
@@ -145,7 +168,10 @@ const processMessage = async (
   }
 
   const scoreKey = `${address} ${parsedMessage.playerNumber}`;
-  const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
+  const scoreData = Object.assign({}, parsedMessage, {
+    id: scoreKey,
+    frame: judgedNoteCount(parsedMessage)
+  });
 
   // write json file for final score & final marathon score
   if (isFinalScore || isFinalMarathonScore) {
@@ -158,6 +184,10 @@ const processMessage = async (
 
     // Store score in queue
     storeScoreForSending(scoreData);
+
+    // This player is done — stop gating broadcasts on them so a finished player
+    // can't hold back the frame frontier for those still playing.
+    finishedIds.add(scoreKey);
   }
   // Score changed
   else {
@@ -191,6 +221,82 @@ function broadcast(message) {
   });
 }
 
+let fallbackTimer = null;
+let lastEmitTime = 0;
+let pendingEmit = null;
+
+function doBroadcast() {
+  broadcast(getClientMessage());
+}
+
+// Rate cap on top of frame gating: send immediately if the window is clear,
+// otherwise coalesce into one trailing send. getClientMessage() reads live
+// serverState, so a coalesced send carries the newest complete frame.
+function emit() {
+  if (pendingEmit) {
+    return;
+  }
+  const elapsed = Date.now() - lastEmitTime;
+  if (elapsed >= CADENCE_CAP_MS) {
+    lastEmitTime = Date.now();
+    doBroadcast();
+  } else {
+    pendingEmit = setTimeout(() => {
+      pendingEmit = null;
+      lastEmitTime = Date.now();
+      doBroadcast();
+    }, CADENCE_CAP_MS - elapsed);
+  }
+}
+
+// Players that still gate a broadcast: on the board, not failed, not finished.
+const gatingScores = () =>
+  serverState.sortedScores.filter((s) => !s.isFailed && !finishedIds.has(s.id));
+
+// Arm/reset the safety timeout so a paused, quit, or lossy client can't freeze
+// the board: if no complete frame assembles in time, broadcast what we have and
+// resync the frontier so normal frame-gated broadcasting can resume.
+function armFallback() {
+  if (fallbackTimer) {
+    clearTimeout(fallbackTimer);
+  }
+  fallbackTimer = setTimeout(() => {
+    emit();
+    const gating = gatingScores();
+    if (gating.length > 0) {
+      lastBroadcastFrame = Math.max(...gating.map((s) => s.frame));
+    }
+  }, FRAME_TIMEOUT_MS);
+}
+
+// Broadcast only complete frames: a snapshot where every still-playing client
+// has reported the same song position. Gating on the slowest player (the frame
+// "frontier") means no client is stale relative to another, so async packet
+// arrival can't reorder near-tied players — the source of the scoreboard
+// flicker. Using min (not exact equality) tolerates packet loss: a dropped
+// packet just makes that player's frame jump, and the frontier advances on
+// their next packet.
+// ponytail: a client that joins mid-song sits below the frontier; the fallback
+// timeout keeps the board live until it catches up — no special-case needed for
+// a lockstep-start competition.
+function maybeBroadcastFrame() {
+  const gating = gatingScores();
+  // Everyone failed/finished — nothing left to wait for, so emit the latest.
+  if (gating.length === 0) {
+    emit();
+    return;
+  }
+  const frontier = nextBroadcastFrame(
+    gating.map((s) => s.frame),
+    lastBroadcastFrame
+  );
+  if (frontier !== null) {
+    lastBroadcastFrame = frontier;
+    emit();
+    armFallback();
+  }
+}
+
 udpServer.on("message", async (buffer, rinfo) => {
   // we are interested only in score messages
   const isScoreChangedMessage = buffer[0] === 0x02;
@@ -218,9 +324,11 @@ udpServer.on("message", async (buffer, rinfo) => {
     console.error(`ERROR: couldn't process message '${scoreMessage}'`, e);
   }
 
-  // Send client messages only for score changed messages
-  if (isScoreChangedMessage && serverState) {
-    broadcast(getClientMessage());
+  // Re-evaluate the frame after any score message: a score change may complete
+  // a frame, and a final score removes a player from the gating set (which can
+  // let the frontier advance for those still playing).
+  if (serverState) {
+    maybeBroadcastFrame();
   }
 });
 
@@ -258,6 +366,12 @@ async function shutdown(signal) {
   console.log(`Received ${signal}, shutting down...`);
 
   clearInterval(flushIntervalId);
+  if (fallbackTimer) {
+    clearTimeout(fallbackTimer);
+  }
+  if (pendingEmit) {
+    clearTimeout(pendingEmit);
+  }
   try {
     await flushScoresToSheet();
   } catch (e) {
