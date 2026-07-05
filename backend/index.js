@@ -1,8 +1,10 @@
 import path from "node:path";
 import fs from "node:fs";
 import dgram from "node:dgram";
-import { WebSocketServer } from "ws";
-import { sheets, auth } from "@googleapis/sheets";
+import { WebSocketServer, WebSocket } from "ws";
+import { parseMessage } from "./parseMessage.js";
+import { makeSortScores } from "./scoring.js";
+import { createGoogleSheets } from "./googleSheets.js";
 
 // --- Configuration (env-driven, with sensible defaults) --------------------
 // Loaded from .env via `node --env-file-if-exists=.env` (see package.json).
@@ -19,6 +21,10 @@ const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SCORES_TAB_NAME = process.env.SCORES_TAB_NAME || "Scores";
 const GOOGLE_KEY_FILE = process.env.GOOGLE_KEY_FILE || "keys.json";
 
+// Skip broadcasting to a client that has more than this many bytes still
+// buffered — it can't keep up, so queueing more would grow memory unbounded.
+const MAX_CLIENT_BUFFERED_BYTES = 512 * 1024;
+
 // Resolve paths relative to this module so the service runs from any CWD.
 const scoresDir = path.join(import.meta.dirname, "scores");
 const keyFile = path.isAbsolute(GOOGLE_KEY_FILE)
@@ -26,13 +32,13 @@ const keyFile = path.isAbsolute(GOOGLE_KEY_FILE)
   : path.join(import.meta.dirname, GOOGLE_KEY_FILE);
 
 // --- Google Sheets ---------------------------------------------------------
-// GoogleAuth resolves the underlying client lazily on the first request, so no
-// startup await/race is needed.
-const googleAuth = new auth.GoogleAuth({
+const googleSheets = createGoogleSheets({
   keyFile,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  spreadsheetId: SPREADSHEET_ID,
+  tabName: SCORES_TAB_NAME
 });
-const googleSheets = sheets({ version: "v4", auth: googleAuth });
+
+const sortScores = makeSortScores(MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE);
 
 let scoreSendingQueue = [];
 
@@ -41,6 +47,7 @@ const udpServer = dgram.createSocket({ type: "udp4", reuseAddr: true });
 // Created in start(), after config/credentials are validated (constructing it
 // binds the port immediately, so we defer until we know we're going to run).
 let wsServer;
+let flushIntervalId;
 
 udpServer.on("error", (err) => {
   console.error(`FATAL: UDP server error on port ${SYNCSTART_UDP_PORT}:`, err);
@@ -55,109 +62,14 @@ const sanitizeFilename = (name) =>
   // eslint-disable-next-line no-control-regex -- intentionally strip control chars
   name.replace(/[/\\?%*:|"<>\x00-\x1f]/g, "").slice(0, 255) || "unnamed";
 
-const parseMessage = (msg) => {
-  const [
-    // "misc" information
-    song,
-    playerNumber,
-    playerName,
-    actualDancePoints,
-    currentPossibleDancePoints,
-    possibleDancePoints,
-    formattedScore,
-    life,
-    isFailed,
-
-    // tap note scores
-    tapNoteNone,
-    tapNoteHitMine,
-    tapNoteAvoidMine,
-    tapNoteCheckpointMiss,
-    tapNoteMiss,
-    tapNoteW5,
-    tapNoteW4,
-    tapNoteW3,
-    tapNoteW2,
-    tapNoteW1,
-    tapNoteW0,
-    tapNoteCheckpointHit,
-
-    // hold note scores
-    holdNoteNone,
-    holdNoteLetGo,
-    holdNoteHeld,
-    holdNoteMissed,
-    totalHoldsCount
-  ] = msg.split("|");
-
-  return {
-    song,
-    playerNumber: parseInt(playerNumber, 10),
-    playerName,
-    actualDancePoints: parseInt(actualDancePoints, 10),
-    currentPossibleDancePoints: parseInt(currentPossibleDancePoints, 10),
-    possibleDancePoints: parseInt(possibleDancePoints, 10),
-    formattedScore,
-    life: parseFloat(life),
-    isFailed: isFailed === "1",
-
-    tapNote: {
-      none: parseInt(tapNoteNone, 10),
-      hitMine: parseInt(tapNoteHitMine, 10),
-      avoidMine: parseInt(tapNoteAvoidMine, 10),
-      checkpointMiss: parseInt(tapNoteCheckpointMiss, 10),
-      miss: parseInt(tapNoteMiss, 10),
-      W5: parseInt(tapNoteW5, 10),
-      W4: parseInt(tapNoteW4, 10),
-      W3: parseInt(tapNoteW3, 10),
-      W2: parseInt(tapNoteW2, 10),
-      W1: parseInt(tapNoteW1, 10),
-      W0: parseInt(tapNoteW0, 10),
-      checkpointHit: parseInt(tapNoteCheckpointHit, 10)
-    },
-
-    holdNote: {
-      none: parseInt(holdNoteNone, 10),
-      letGo: parseInt(holdNoteLetGo, 10),
-      held: parseInt(holdNoteHeld, 10),
-      missed: parseInt(holdNoteMissed, 10)
-    },
-
-    totalHoldsCount: parseInt(totalHoldsCount, 10)
-  };
-};
-
-const clampPercentage = (val) => Math.min(Math.max(val, 0), 1);
-
-const sortScores = (score1, score2) => {
-  // if other is one is failed and other not, that's all that matters
-  if (score1.isFailed !== score2.isFailed) {
-    return (score1.isFailed ? 1 : 0) - (score2.isFailed ? 1 : 0);
-  }
-
-  const overPossibleDancePointDifference =
-    Math.abs(
-      score1.currentPossibleDancePoints - score2.currentPossibleDancePoints
-    ) > MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE;
-
-  if (overPossibleDancePointDifference) {
-    const firstPercentage = clampPercentage(
-      score1.actualDancePoints / score1.possibleDancePoints
-    );
-    const secondPercentage = clampPercentage(
-      score2.actualDancePoints / score2.possibleDancePoints
-    );
-
-    return secondPercentage - firstPercentage;
-  } else {
-    const firstLostDancePoints =
-      score1.currentPossibleDancePoints - score1.actualDancePoints;
-    const secondLostDancePoints =
-      score2.currentPossibleDancePoints - score2.actualDancePoints;
-
-    return firstLostDancePoints - secondLostDancePoints;
-  }
-};
+// A packet is only usable if its essential numeric fields parsed cleanly.
+// Malformed/short packets would otherwise leak NaN into the comparator, the
+// client broadcast and the sheet, so we reject them outright.
+const isValidScore = (parsedMessage) =>
+  Number.isFinite(parsedMessage.playerNumber) &&
+  Number.isFinite(parsedMessage.actualDancePoints) &&
+  Number.isFinite(parsedMessage.currentPossibleDancePoints) &&
+  Number.isFinite(parsedMessage.possibleDancePoints);
 
 function updateServerState(parsedMessage, scoreKey, scoreData) {
   if (serverState === null || serverState.currentSong !== parsedMessage.song) {
@@ -219,19 +131,6 @@ function storeScoreForSending(scoreData) {
   scoreSendingQueue.push(scoreItem);
 }
 
-async function sendScoresToGoogleSheets(scoreValues) {
-  console.log(`Sending ${scoreValues.length} scores to google sheets`);
-
-  await googleSheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SCORES_TAB_NAME}!A:O`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: scoreValues
-    }
-  });
-}
-
 const processMessage = async (
   address,
   msg,
@@ -239,6 +138,12 @@ const processMessage = async (
   isFinalMarathonScore
 ) => {
   const parsedMessage = parseMessage(msg);
+
+  if (!isValidScore(parsedMessage)) {
+    console.error(`WARN: ignoring malformed score message '${msg}'`);
+    return;
+  }
+
   const scoreKey = `${address} ${parsedMessage.playerNumber}`;
   const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
 
@@ -265,6 +170,26 @@ const getClientMessage = () =>
     song: serverState.currentSong,
     scores: serverState.sortedScores
   });
+
+// Broadcast the current scoreboard to every open client. Guards each send so a
+// single misbehaving/closing socket can't throw and take down the process, and
+// skips clients that are too far behind to avoid unbounded buffering.
+function broadcast(message) {
+  wsServer.clients.forEach((client) => {
+    if (client.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (client.bufferedAmount > MAX_CLIENT_BUFFERED_BYTES) {
+      console.warn("WARN: skipping slow WebSocket client (send buffer full)");
+      return;
+    }
+    try {
+      client.send(message);
+    } catch (e) {
+      console.error("WARN: failed to send to WebSocket client", e);
+    }
+  });
+}
 
 udpServer.on("message", async (buffer, rinfo) => {
   // we are interested only in score messages
@@ -294,12 +219,8 @@ udpServer.on("message", async (buffer, rinfo) => {
   }
 
   // Send client messages only for score changed messages
-  if (isScoreChangedMessage) {
-    const scoreStateForClients = getClientMessage();
-
-    wsServer.clients.forEach((client) => {
-      client.send(scoreStateForClients);
-    });
+  if (isScoreChangedMessage && serverState) {
+    broadcast(getClientMessage());
   }
 });
 
@@ -316,7 +237,7 @@ async function flushScoresToSheet() {
 
   const batch = scoreSendingQueue.splice(0, scoreSendingQueue.length);
   try {
-    await sendScoresToGoogleSheets(batch);
+    await googleSheets.appendScores(batch);
   } catch (e) {
     console.log("Error: could not send score, will retry", e);
     // put the batch back at the front to retry on the next tick
@@ -326,14 +247,26 @@ async function flushScoresToSheet() {
   }
 }
 
-// Confirm the credentials authenticate and the service account can actually
-// reach the target spreadsheet. Returns the spreadsheet title on success.
-async function verifyGoogleAccess() {
-  const res = await googleSheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID,
-    fields: "properties.title"
-  });
-  return res.data.properties.title;
+// Clear the flush interval, flush anything still queued, and close the servers.
+// Runs on SIGINT/SIGTERM so queued scores aren't lost on shutdown.
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  console.log(`Received ${signal}, shutting down...`);
+
+  clearInterval(flushIntervalId);
+  try {
+    await flushScoresToSheet();
+  } catch (e) {
+    console.error("Error flushing scores during shutdown", e);
+  }
+
+  wsServer?.close();
+  udpServer.close();
+  process.exit(0);
 }
 
 async function start() {
@@ -357,7 +290,7 @@ async function start() {
 
   // Verify we can authenticate with keys.json AND access the target sheet.
   try {
-    const title = await verifyGoogleAccess();
+    const title = await googleSheets.verifyAccess();
     console.log(
       `Google Sheets: authenticated and able to access "${title}" (${SPREADSHEET_ID}).`
     );
@@ -380,12 +313,19 @@ async function start() {
     process.exit(1);
   });
   wsServer.on("connection", (wsClient) => {
+    // Without a listener, an 'error' on an individual client socket is fatal to
+    // the whole process; log and let the socket close instead.
+    wsClient.on("error", (err) => {
+      console.error("WARN: WebSocket client error", err);
+    });
     if (serverState) {
       wsClient.send(getClientMessage());
     }
   });
 
-  setInterval(flushScoresToSheet, 5000);
+  flushIntervalId = setInterval(flushScoresToSheet, 5000);
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 
   console.log("Starting server!");
   console.log("SYNCSTART_UDP_PORT:", SYNCSTART_UDP_PORT);
