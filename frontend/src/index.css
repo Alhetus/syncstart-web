@@ -62,8 +62,23 @@ body {
     background-color 0.2s ease-out;
 }
 
+.player-name {
+  flex: 1 1 auto; /* take the space left of the right-pinned score */
+  min-width: 0; /* allow the box to be narrower than its content */
+  overflow: hidden; /* safety clip; the scale should make this a no-op */
+}
+
+.player-name-text {
+  display: inline-block; /* so transform: scale() applies to a sized box */
+  transform-origin: left center;
+  white-space: nowrap;
+}
+
 .score {
   margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px; /* even spacing between badges + percent */
   font-weight: 800;
   white-space: nowrap;
   flex-shrink: 0;
@@ -73,7 +88,6 @@ body {
 
 .percent {
   display: inline-block;
-  min-width: 6ch;
   text-align: right;
 }
 
