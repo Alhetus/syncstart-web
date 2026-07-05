@@ -4,8 +4,7 @@ const MAX_POSSIBLE_DANCE_POINTS_DIFFERENCE = 100;
 
 // CHANGE THESE TO MATCH THE WANTED GOOGLE SHEET
 // ---------------------------------------------
-const spreadsheetId = "1qxZod_jc-0tGc0jxZdg344dh_owaNBNZGSxvjfirWlc";
-const marathonScoresTabName = "Marathon scores";
+const spreadsheetId = "1fa88lJihFOGGjR3yZiPHo70LOPRWlRLrFFn_I1yFJg4";
 const scoresTabName = "Scores";
 // ---------------------------------------------
 
@@ -17,7 +16,6 @@ const dgram = require("dgram");
 const sanitize = require("sanitize-filename");
 const { google } = require("googleapis");
 
-let marathonScoreSendingQueue = [];
 let scoreSendingQueue = [];
 
 console.log("Authenticating for google sheets...");
@@ -68,13 +66,15 @@ const parseMessage = msg => {
     tapNoteW3,
     tapNoteW2,
     tapNoteW1,
+    tapNoteW0,
     tapNoteCheckpointHit,
 
     // hold note scores
     holdNoteNone,
     holdNoteLetGo,
     holdNoteHeld,
-    holdNoteMissed
+    holdNoteMissed,
+    totalHoldsCount
   ] = msg.split("|");
 
   return {
@@ -99,6 +99,7 @@ const parseMessage = msg => {
       W3: parseInt(tapNoteW3, 10),
       W2: parseInt(tapNoteW2, 10),
       W1: parseInt(tapNoteW1, 10),
+      W0: parseInt(tapNoteW0, 10),
       checkpointHit: parseInt(tapNoteCheckpointHit, 10)
     },
 
@@ -107,7 +108,9 @@ const parseMessage = msg => {
       letGo: parseInt(holdNoteLetGo, 10),
       held: parseInt(holdNoteHeld, 10),
       missed: parseInt(holdNoteMissed, 10)
-    }
+    },
+
+    totalHoldsCount: parseInt(totalHoldsCount, 10)
   };
 };
 
@@ -161,8 +164,9 @@ function updateServerState(parsedMessage, scoreKey, scoreData) {
   }
 }
 
-function storeScoreForSending(scoreData, isMarathon) {
+function storeScoreForSending(scoreData) {
   if (
+    scoreData.tapNote.W0 === 0 &&
     scoreData.tapNote.W1 === 0 &&
     scoreData.tapNote.W2 === 0 &&
     scoreData.tapNote.W3 === 0 &&
@@ -174,10 +178,11 @@ function storeScoreForSending(scoreData, isMarathon) {
   console.log(`Storing score: ${scoreData.song} - player: ${scoreData.playerName}`);
 
   const scoreItem = [
-    scoreData.song,
+    scoreData.song.split("/")[1],
     scoreData.playerName,
     parseFloat(scoreData.formattedScore),
     scoreData.isFailed,
+    scoreData.tapNote.W0,
     scoreData.tapNote.W1,
     scoreData.tapNote.W2,
     scoreData.tapNote.W3,
@@ -187,23 +192,22 @@ function storeScoreForSending(scoreData, isMarathon) {
     scoreData.tapNote.hitMine,
     scoreData.holdNote.held,
     scoreData.holdNote.letGo,
+    scoreData.totalHoldsCount,
+    scoreData.actualDancePoints,
+    scoreData.possibleDancePoints,
     scoreData.id
   ];
 
-  if (isMarathon) {
-    marathonScoreSendingQueue.push(scoreItem);
-  } else {
-    scoreSendingQueue.push(scoreItem);
-  }
+  scoreSendingQueue.push(scoreItem);
 }
 
-async function sendScoresToGoogleSheets(scoreValues, isMarathon) {
+async function sendScoresToGoogleSheets(scoreValues) {
   console.log(`Sending ${scoreValues.length} scores to google sheets`);
 
   await googleSheets.spreadsheets.values.append({
     auth,
     spreadsheetId,
-    range: isMarathon ? `${marathonScoresTabName}!A:N` : `${scoresTabName}!A:N`,
+    range: `${scoresTabName}!A:O`,
     valueInputOption: "USER_ENTERED",
     resource: {
       values: scoreValues,
@@ -216,7 +220,7 @@ const processMessage = async (address, msg, isFinalScore, isFinalMarathonScore) 
   const scoreKey = `${address} ${parsedMessage.playerNumber}`;
   const scoreData = Object.assign({}, parsedMessage, { id: scoreKey });
 
-  // write json file for final score
+  // write json file for final score & final marathon score
   if (isFinalScore || isFinalMarathonScore) {
     const json = JSON.stringify(scoreData);
     const filename = sanitize(
@@ -228,7 +232,7 @@ const processMessage = async (address, msg, isFinalScore, isFinalMarathonScore) 
     fs.writeFileSync(filePath, json, "utf8");
 
     // Store score in queue
-    storeScoreForSending(scoreData, isFinalMarathonScore);
+    storeScoreForSending(scoreData);
   }
   // Score changed
   else {
@@ -288,26 +292,21 @@ wsServer.on("connection", wsClient => {
 // Poll in 5 second intervals and send scores
 async function waitAndSendScoresToSheet() {
   setTimeout(async function() {
+    const queueLength = scoreSendingQueue.length;
+
     // Send accumulated scores to google sheets
-    if (scoreSendingQueue.length > 0) {
+    if (queueLength > 0) {
       try {
         await sendScoresToGoogleSheets(scoreSendingQueue, false);
+
+        // Clear sent amount from queue
+        for (let i = 0; i < queueLength; i++) {
+          scoreSendingQueue.shift();
+        }
       } catch (e) {
         console.log("Error: could not send score", e);
       }
     }
-
-    if (marathonScoreSendingQueue.length > 0) {
-      try {
-        await sendScoresToGoogleSheets(marathonScoreSendingQueue, true);
-      } catch (e) {
-        console.log("Error: could not send marathon score", e);
-      }
-    }
-
-    // Clear stored scores from queues
-    scoreSendingQueue = [];
-    marathonScoreSendingQueue = [];
 
     // Run again after 5 seconds
     await waitAndSendScoresToSheet();

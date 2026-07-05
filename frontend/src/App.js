@@ -32,7 +32,7 @@ const Bars = styled.div`
 `;
 
 const BarContainer = styled.div`
-  width: 100%; /* will get overriden */
+  width: 100%; /* will get overridden */
   font-weight: 500;
   color: white;
   display: flex;
@@ -117,25 +117,14 @@ const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
   const misses =
     tapNote.miss + tapNote.hitMine + tapNote.checkpointMiss + holdNote.missed;
 
-  const showExtraScore = [
-    tapNote.W2,
-    tapNote.W3,
-    tapNote.W4,
-    tapNote.W5,
-    misses
-  ].every(val => val < 10);
-
   return (
     <ScoreContainer>
-      {showExtraScore && (
-        <>
-          <JudgementScore color="#e29c18" label="e" value={tapNote.W2} />{" "}
-          <JudgementScore color="#66c955" label="g" value={tapNote.W3} />{" "}
-          <JudgementScore color="#5b2b8e" label="d" value={tapNote.W4} />{" "}
-          <JudgementScore color="#c9855e" label="w" value={tapNote.W5} />{" "}
-          <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
-        </>
-      )}
+      <JudgementScore color="#f2f2f2" label="w" value={tapNote.W1} />{" "}
+      <JudgementScore color="#e29c18" label="e" value={tapNote.W2} />{" "}
+      <JudgementScore color="#66c955" label="g" value={tapNote.W3} />{" "}
+      <JudgementScore color="#5b2b8e" label="d" value={tapNote.W4} />{" "}
+      <JudgementScore color="#632b08" label="wo" value={tapNote.W5} />{" "}
+      <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
       <span>{formattedScore}</span>
     </ScoreContainer>
   );
