@@ -12,7 +12,7 @@ body {
 }
 
 body {
-  font-family: "Exo", sans-serif;
+  font-family: "Exo 2", sans-serif;
   background-color: black;
 }
 
@@ -67,6 +67,14 @@ body {
   font-weight: 800;
   white-space: nowrap;
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.percent {
+  display: inline-block;
+  min-width: 6ch;
+  text-align: right;
 }
 
 .judgement {

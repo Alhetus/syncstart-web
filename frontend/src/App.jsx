@@ -59,7 +59,7 @@ const RenderedScore = React.memo(({ formattedScore, tapNote, holdNote }) => {
       <JudgementScore color="#5b2b8e" label="d" value={tapNote.W4} />{" "}
       <JudgementScore color="#632b08" label="wo" value={tapNote.W5} />{" "}
       <JudgementScore color="#ff0000" label="m" value={misses} />{" "}
-      <span>{formattedScore}</span>
+      <span className="percent">{formattedScore}</span>
     </div>
   );
 });
